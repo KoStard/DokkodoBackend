@@ -1,0 +1,12 @@
+{
+  "id": "74f34c4b-4e3a-4021-8442-1d8ba8fdf6b0",
+  "name": "Test Thread",
+  "messages": [
+    {
+      "id": "b3d5e216-d552-40cb-9d5b-dbb9bd40d5f8",
+      "role": "user",
+      "content": "This is an edited message",
+      "media_files": []
+    }
+  ]
+}
