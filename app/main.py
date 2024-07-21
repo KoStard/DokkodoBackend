@@ -8,6 +8,8 @@ from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 import uuid
 import shutil
+import os
+from fastapi import HTTPException
 
 app = FastAPI()
 
@@ -43,6 +45,9 @@ class Thread(BaseModel):
 
 class MessageEdit(BaseModel):
     content: str
+    
+class ThreadCreate(BaseModel):
+    name: str
 
 class ThreadRename(BaseModel):
     name: str
@@ -59,9 +64,9 @@ async def stream_text(body: dict):
     return StreamingResponse(generate_text(), media_type="text/plain")
 
 @app.post("/api/threads")
-async def create_thread(name: str):
+async def create_thread(request: ThreadCreate):
     thread_id = str(uuid.uuid4())
-    thread = Thread(id=thread_id, name=name, messages=[])
+    thread = Thread(id=thread_id, name=request.name, messages=[])
     save_thread(thread)
     return thread
 
@@ -91,6 +96,27 @@ async def rename_thread(thread_id: str, thread_rename: ThreadRename):
     thread.name = thread_rename.name
     save_thread(thread)
     return {"message": "Thread renamed successfully"}
+
+@app.delete("/api/threads/{thread_id}")
+async def delete_thread(thread_id: str):
+    thread = load_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    
+    file_path = os.path.join(STORAGE_PATH, f"{thread_id}.json")
+    if os.path.exists(file_path):
+        os.remove(file_path)
+        
+        # Delete associated media files
+        for message in thread.messages:
+            for media_file in message.media_files:
+                media_file_path = os.path.join(STORAGE_PATH, media_file.filename)
+                if os.path.exists(media_file_path):
+                    os.remove(media_file_path)
+        
+        return {"message": "Thread deleted successfully"}
+    else:
+        raise HTTPException(status_code=404, detail="Thread file not found")
 
 @app.post("/api/threads/{thread_id}/messages")
 async def add_message(
