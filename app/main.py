@@ -123,13 +123,14 @@ async def add_message(
     thread_id: str, 
     content: str = Form(...),
     role: str = Form(...),
+    message_id: str = Form(default=None),
     files: List[UploadFile] = File(None)
 ):
     thread = load_thread(thread_id)
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
     
-    message_id = str(uuid.uuid4())
+    message_id = message_id or str(uuid.uuid4())
     media_files = []
     
     if files:
@@ -143,7 +144,7 @@ async def add_message(
     message = Message(id=message_id, role=role, content=content, media_files=media_files)
     thread.messages.append(message)
     save_thread(thread)
-    return {"message": "Message added successfully", "message_id": message_id}
+    return message
 
 @app.put("/api/threads/{thread_id}/messages/{message_id}")
 async def edit_message(
