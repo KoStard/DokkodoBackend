@@ -21,7 +21,7 @@ app.add_middleware(
 )
 
 # Define the base path for storage
-STORAGE_PATH = "backend/storage"
+STORAGE_PATH = "storage"
 
 # Ensure the storage directory exists
 os.makedirs(STORAGE_PATH, exist_ok=True)
@@ -44,6 +44,9 @@ class Thread(BaseModel):
 class MessageEdit(BaseModel):
     content: str
 
+class ThreadRename(BaseModel):
+    name: str
+
 async def generate_text():
     sentence = "This is a long hardcoded text that will be streamed to the UI."
     for index in range(0, len(sentence), 5):
@@ -60,7 +63,7 @@ async def create_thread(name: str):
     thread_id = str(uuid.uuid4())
     thread = Thread(id=thread_id, name=name, messages=[])
     save_thread(thread)
-    return {"id": thread_id, "name": name}
+    return thread
 
 @app.get("/api/threads")
 async def list_threads():
@@ -78,6 +81,16 @@ async def get_thread(thread_id: str):
     if thread:
         return thread
     raise HTTPException(status_code=404, detail="Thread not found")
+
+@app.put("/api/threads/{thread_id}")
+async def rename_thread(thread_id: str, thread_rename: ThreadRename):
+    thread = load_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    
+    thread.name = thread_rename.name
+    save_thread(thread)
+    return {"message": "Thread renamed successfully"}
 
 @app.post("/api/threads/{thread_id}/messages")
 async def add_message(

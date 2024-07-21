@@ -1,1 +1,4 @@
 .venv
+storage
+output.txt
+combine_for_context.sh
