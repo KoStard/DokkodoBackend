@@ -1,15 +1,15 @@
 import asyncio
 import json
 import os
-from typing import List, Optional
-from fastapi import FastAPI, Form, UploadFile, File, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse
-from pydantic import BaseModel
-import uuid
 import shutil
-import os
-from fastapi import HTTPException
+import uuid
+from typing import List, Optional
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, StreamingResponse
+
+from .models import *
 
 app = FastAPI()
 
@@ -28,45 +28,35 @@ STORAGE_PATH = "storage"
 # Ensure the storage directory exists
 os.makedirs(STORAGE_PATH, exist_ok=True)
 
-class MediaFile(BaseModel):
-    filename: str
-    content_type: str
-
-class Message(BaseModel):
-    id: str
-    role: str
-    content: str
-    media_files: List[MediaFile] = []
-
-class Thread(BaseModel):
-    id: str
-    name: str
-    messages: List[Message]
-
-class MessageEdit(BaseModel):
-    content: str
-    
-class ThreadCreate(BaseModel):
-    name: str
-
-class ThreadRename(BaseModel):
-    name: str
-
 async def generate_text():
     sentence = "This is a long hardcoded text that will be streamed to the UI."
     for index in range(0, len(sentence), 5):
         yield sentence[index:index+5]
-        await asyncio.sleep(0.05)  # 0.5 second delay
+        await asyncio.sleep(0.05)
 
 @app.post("/api/chat")
-async def stream_text(body: dict):
+async def stream_chat(body: dict):
     print(body)
     return StreamingResponse(generate_text(), media_type="text/plain")
 
 @app.post("/api/threads")
 async def create_thread(request: ThreadCreate):
     thread_id = str(uuid.uuid4())
-    thread = Thread(id=thread_id, name=request.name, messages=[])
+    journey = load_journey(request.journey_id)
+    if not journey:
+        raise HTTPException(status_code=404, detail="Journey not found")
+    
+    initial_messages = []
+    if journey.initial_message:
+        initial_message_id = str(uuid.uuid4())
+        initial_messages.append(Message(
+            id=initial_message_id,
+            role="assistant",
+            content=journey.initial_message,
+            visible=False
+        ))
+    
+    thread = Thread(id=thread_id, name=request.name, journey_id=request.journey_id, messages=initial_messages)
     save_thread(thread)
     return thread
 
@@ -141,7 +131,8 @@ async def add_message(
                 shutil.copyfileobj(file.file, buffer)
             media_files.append(MediaFile(filename=filename, content_type=file.content_type))
     
-    message = Message(id=message_id, role=role, content=content, media_files=media_files)
+    # Always set visible to True for user-created messages
+    message = Message(id=message_id, role=role, content=content, media_files=media_files, visible=True)
     thread.messages.append(message)
     save_thread(thread)
     return message
@@ -209,6 +200,39 @@ def load_thread(thread_id: str) -> Optional[Thread]:
             return Thread(**thread_data)
     return None
 
-@app.get("/api")
-async def root():
-    return {"message": "Hello World"}
+@app.post("/api/journeys")
+async def create_journey(journey: JourneyCreate):
+    journey_id = str(uuid.uuid4())
+    new_journey = Journey(id=journey_id, **journey.dict())
+    save_journey(new_journey)
+    return new_journey
+
+@app.get("/api/journeys")
+async def list_journeys():
+    journeys = []
+    for filename in os.listdir(STORAGE_PATH):
+        if filename.startswith("journey_") and filename.endswith(".json"):
+            with open(os.path.join(STORAGE_PATH, filename), "r") as f:
+                journey = json.load(f)
+                journeys.append(journey)
+    return journeys
+
+@app.get("/api/journeys/{journey_id}")
+async def get_journey(journey_id: str):
+    journey = load_journey(journey_id)
+    if journey:
+        return journey
+    raise HTTPException(status_code=404, detail="Journey not found")
+
+def save_journey(journey: Journey):
+    file_path = os.path.join(STORAGE_PATH, f"journey_{journey.id}.json")
+    with open(file_path, "w") as f:
+        json.dump(journey.dict(), f, indent=2)
+
+def load_journey(journey_id: str) -> Optional[Journey]:
+    file_path = os.path.join(STORAGE_PATH, f"journey_{journey_id}.json")
+    if os.path.exists(file_path):
+        with open(file_path, "r") as f:
+            journey_data = json.load(f)
+            return Journey(**journey_data)
+    return None
