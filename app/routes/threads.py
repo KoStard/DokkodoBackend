@@ -1,9 +1,10 @@
 import uuid
-from fastapi import APIRouter, HTTPException
-from app.models import Message, ThreadCreate, ThreadRename, Thread
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from typing import List
+from app.models import Message, ThreadCreate, ThreadRename, Thread, MediaFile
 from app.utils.journey_utils import load_journey
 from app.utils.path_utils import get_media_path, get_thread_path
-from app.utils.thread_utils import save_thread, load_thread, list_threads
+from app.utils.thread_utils import save_thread, load_thread, list_threads, add_message_to_thread, update_and_discard_messages_after
 
 router = APIRouter()
 
@@ -73,3 +74,100 @@ async def delete_thread(thread_id: str):
         return {"message": "Thread deleted successfully"}
     else:
         raise HTTPException(status_code=404, detail="Thread file not found")
+
+@router.post("/api/threads/{thread_id}/messages")
+async def create_message(
+    thread_id: str,
+    content: str = Form(...),
+    role: str = Form(...),
+    files: List[UploadFile] = File(None)
+):
+    thread = load_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    message_id = str(uuid.uuid4())
+    media_files = []
+
+    if files:
+        for file in files:
+            filename = f"{uuid.uuid4()}_{file.filename}"
+            file_path = get_media_path(filename)
+            with file_path.open("wb") as buffer:
+                buffer.write(await file.read())
+            media_files.append(MediaFile(filename=filename, content_type=file.content_type))
+
+    new_message = Message(
+        id=message_id,
+        role=role,
+        content=content,
+        media_files=media_files,
+        visible=True
+    )
+
+    updated_thread = add_message_to_thread(thread_id, new_message)
+    if not updated_thread:
+        raise HTTPException(status_code=500, detail="Failed to add message to thread")
+
+    return new_message
+
+@router.put("/api/threads/{thread_id}/messages/{message_id}")
+async def update_message(
+    thread_id: str,
+    message_id: str,
+    content: str = Form(...),
+    files: List[UploadFile] = File(None)
+):
+    thread = load_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    existing_message = next((m for m in thread.messages if m.id == message_id), None)
+    if not existing_message:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    media_files = []
+
+    if files:
+        for file in files:
+            filename = f"{uuid.uuid4()}_{file.filename}"
+            file_path = get_media_path(filename)
+            with file_path.open("wb") as buffer:
+                buffer.write(await file.read())
+            media_files.append(MediaFile(filename=filename, content_type=file.content_type))
+
+    updated_message = Message(
+        id=message_id,
+        role=existing_message.role,
+        content=content,
+        media_files=media_files,
+        visible=existing_message.visible
+    )
+
+    updated_thread = update_and_discard_messages_after(thread_id, message_id, updated_message)
+    if not updated_thread:
+        raise HTTPException(status_code=500, detail="Failed to update message in thread")
+
+    return updated_message
+
+@router.delete("/api/threads/{thread_id}/messages/{message_id}")
+async def delete_message(thread_id: str, message_id: str):
+    thread = load_thread(thread_id)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    message_to_delete = next((m for m in thread.messages if m.id == message_id), None)
+    if not message_to_delete:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    # Remove the message from the thread
+    thread.messages = [m for m in thread.messages if m.id != message_id]
+
+    # Delete associated media files
+    for media_file in message_to_delete.media_files:
+        media_file_path = get_media_path(media_file.filename)
+        if media_file_path.exists():
+            media_file_path.unlink()
+
+    save_thread(thread)
+    return {"message": "Message deleted successfully"}

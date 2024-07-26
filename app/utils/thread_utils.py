@@ -58,13 +58,14 @@ def add_message_to_thread(thread_id: str, message: Message) -> Thread | None:
         return thread
     return None
 
-def update_message_in_thread(thread_id: str, message_id: str, updated_message: Message) -> Thread | None:
-    """Update a message in a thread and save it."""
+def update_and_discard_messages_after(thread_id: str, message_id: str, updated_message: Message) -> Thread | None:
+    """Update a message in a thread, discard all messages after it, and save it."""
     thread = load_thread(thread_id)
     if thread:
         for i, msg in enumerate(thread.messages):
             if msg.id == message_id:
-                thread.messages[i] = updated_message
+                thread.messages = thread.messages[:i] + [updated_message]
                 save_thread(thread)
                 return thread
     return None
+
