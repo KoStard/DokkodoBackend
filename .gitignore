@@ -3,3 +3,5 @@ storage
 output.txt
 combine_for_context.sh
 **/*.pyc
+tmp
+**/.DS_Store
