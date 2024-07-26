@@ -38,4 +38,4 @@ class ThreadRename(BaseModel):
     name: str
 
 class ChatRequest(BaseModel):
-    messages: List[dict]
+    messages: List[Message]
